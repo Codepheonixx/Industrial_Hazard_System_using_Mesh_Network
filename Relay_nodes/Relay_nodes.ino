@@ -6,10 +6,10 @@
 #define MESH_PASSWORD "saveslifefromfire"
 #define MESH_PORT 5555
 
-const uint8_t room = 1; //Assign room number for the room you want the sensor to be installed
+const uint8_t room = 4; //Assign room number for the room you want the sensor to be installed
 
 const short firepin = D5;  // Fire sensor pin
-const short gaspin = D2;   // Gas sensor pin
+const short gaspin = A0;   // Gas sensor pin
 const short buzzer = D6;   // Alert output pin
 uint16_t gas_threshold = 500;   // Set the gas threshold
 

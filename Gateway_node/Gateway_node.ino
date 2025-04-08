@@ -8,8 +8,8 @@
 #define MESH_PORT 5555
 
 // WiFi Credentials
-#define   STATION_SSID     "GOD_GIFTED_4G"
-#define   STATION_PASSWORD "ssgrp1234"
+#define   STATION_SSID     "TEST_NETWORK"
+#define   STATION_PASSWORD "12345678"
 
 #define HOSTNAME "FireAlarm_Gateway"
 
@@ -23,17 +23,16 @@ short gas_threshold = 500;   // Set the gas threshold
 unsigned long lastReconnectAttempt = 0;
 unsigned long reconnectInterval = 5000; // Retry every 5 seconds
 
-const unsigned long buzzInterval = 500;  // 500ms pulse interval (rapid buzz)
-const unsigned long minAlarmDuration = 2000;  // Minimum 2-second alarm
-unsigned long alarmStartTime = 0;
-
-unsigned long endTime = 0;   // For buzzer   // Set buzzer interval
-bool buzzerActive = false;   // Buzzer reset flag
+bool buzzerActive = false;
+unsigned long buzzerStartTime = 0;
+unsigned long lastBlinkTime = 0;
+const unsigned long BUZZER_BLINK_INTERVAL = 500; // blink every 500ms
+bool buzzerState = false; // tracks ON/OFF state of buzzer for blinking
 
 IPAddress getlocalIP();
 
 IPAddress myIP(0,0,0,0);
-IPAddress mqttBroker(192, 168, 29, 192);
+IPAddress mqttBroker(192, 168, 146, 64);
 
 void receivedCallback(uint32_t from, String &msg);
 void mqttCallback(char* topic, byte* payload, unsigned int length);
@@ -68,16 +67,6 @@ void setup() {
   digitalWrite(buzzer,LOW);
 
   // Initialize Wi-Fi mode and channel FIRST
-  WiFi.mode(WIFI_AP_STA);       // Dual mode (AP + Station)
-  wifi_set_channel(6);          // Force channel 6 (ESP8266 only)
-
-   // Wait for Wi-Fi connection
-  Serial.print("Connecting to Wi-Fi");
-  WiFi.begin(STATION_SSID, STATION_PASSWORD);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
   Serial.println("\nWi-Fi connected! IP: " + WiFi.localIP().toString());
   Serial.printf("Wi-Fi Channel: %d\n", WiFi.channel());
   Serial.println("MQTT Broker: " + mqttBroker.toString());
@@ -85,8 +74,9 @@ void setup() {
 
   // Initialize mesh network
   mesh.setDebugMsgTypes(ERROR | STARTUP | CONNECTION);
-  mesh.init(MESH_PREFIX, MESH_PASSWORD, MESH_PORT);
+  mesh.init( MESH_PREFIX, MESH_PASSWORD, MESH_PORT, WIFI_AP_STA, 6 );
   mesh.onReceive(&receivedCallback);
+  mesh.stationManual(STATION_SSID, STATION_PASSWORD);
   mesh.setHostname(HOSTNAME);
   mesh.setRoot(true);
   mesh.setContainsRoot(true);
@@ -132,26 +122,20 @@ void loop(){
   }
 
   //Part to trigger buzzer
-  static unsigned long lastBuzzToggle = 0;
-  
   if (buzzerActive) {
-    // Minimum 2-second alarm
-    if (millis() - alarmStartTime < minAlarmDuration) {
-      // Toggle buzzer every 500ms
-      if (millis() - lastBuzzToggle >= buzzInterval) {
-        lastBuzzToggle = millis();
-        digitalWrite(buzzer, !digitalRead(buzzer));
-      }
-    } else {
-      // Check if alarm should continue
-      if (!(digitalRead(firepin) || analogRead(gaspin) > gas_threshold)) {
-        buzzerActive = false;
-        digitalWrite(buzzer, LOW);
-      }
+    unsigned long currentTime = millis();
+
+    // Blink the buzzer every 500ms
+    if (currentTime - lastBlinkTime >= BUZZER_BLINK_INTERVAL) {
+      buzzerState = !buzzerState;
+      digitalWrite(buzzer, buzzerState ? HIGH : LOW);
+      lastBlinkTime = currentTime;
     }
   } else {
     digitalWrite(buzzer, LOW);
+    buzzerState = false;
   }
+
 }
 
 void readSensor() {
@@ -162,8 +146,8 @@ void readSensor() {
   // Alarm Trigger
   if ((fire || gas > gas_threshold) && !buzzerActive) {
     buzzerActive = true;
-    alarmStartTime = millis();
-    Serial.println("ALARM: Fire/Gas detected on gateway!");
+    buzzerStartTime = millis();
+    Serial.println("Hazard detected !!");
   }
 
   // MQTT Publishing (optimized)
@@ -184,16 +168,17 @@ bool reconnect() {
   if (WiFi.status() != WL_CONNECTED) {
     WiFi.disconnect();
     mesh.stationManual(STATION_SSID, STATION_PASSWORD); // Re-init Wi-Fi
-    delay(1000); // Allow Wi-Fi to settle
   }
 
   char clientId[32];
   snprintf(clientId, sizeof(clientId), "ESP_Gateway-%08X", ESP.getChipId());
   
   if (mqttClient.connect(clientId)) {
+    mqttClient.publish("testTopic","Gateway node ready!");
     mqttClient.subscribe("Reset");
     return true;
   }
+  
   Serial.printf("MQTT failed (rc=%d)\n", mqttClient.state());
   return false;
 }
@@ -205,18 +190,19 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 
   Serial.printf("MQTT Callback: Topic=%s, Msg=%s\n", topic, msg.c_str());
 
-  if(String(topic) == "Reset" && msg == "1") {
+  if(String(topic) == "Reset" && msg == "1") { 
 
+    buzzerActive = false;
     Serial.println("Reset command received. Broadcasting...");
     if (mesh.sendBroadcast("reset")) {
       Serial.println("Broadcasted successfully.");
-      buzzerActive = false;
     } else {
       Serial.println("Broadcast failed.");
     }
     
   }
 }
+
 
 void receivedCallback(uint32_t from, String &msg) {
     Serial.printf("[Mesh] Msg from %u: %s\n", from, msg.c_str());
@@ -243,7 +229,7 @@ void receivedCallback(uint32_t from, String &msg) {
     bool hazardDetected = fire || gas > gas_threshold;
     if (hazardDetected && !buzzerActive) {
         buzzerActive = true;
-        alarmStartTime = millis();
+        buzzerStartTime = millis();
         Serial.println("! HAZARD DETECTED !");
     }
 
