@@ -8,7 +8,7 @@
 #define MESH_PORT 5555
 
 // WiFi Credentials
-#define   STATION_SSID     "TEST_NETWORK"
+#define   STATION_SSID     "TEST_NETWORK_1"
 #define   STATION_PASSWORD "12345678"
 
 #define HOSTNAME "FireAlarm_Gateway"
@@ -66,17 +66,22 @@ void setup() {
   digitalWrite(firepin,LOW);
   digitalWrite(buzzer,LOW);
 
-  // Initialize Wi-Fi mode and channel FIRST
-  Serial.println("\nWi-Fi connected! IP: " + WiFi.localIP().toString());
-  Serial.printf("Wi-Fi Channel: %d\n", WiFi.channel());
-  Serial.println("MQTT Broker: " + mqttBroker.toString());
-
 
   // Initialize mesh network
   mesh.setDebugMsgTypes(ERROR | STARTUP | CONNECTION);
   mesh.init( MESH_PREFIX, MESH_PASSWORD, MESH_PORT, WIFI_AP_STA, 6 );
   mesh.onReceive(&receivedCallback);
   mesh.stationManual(STATION_SSID, STATION_PASSWORD);
+
+  WiFi.begin(STATION_SSID, STATION_PASSWORD);
+  
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  //WiFi.disconnect();
+
   mesh.setHostname(HOSTNAME);
   mesh.setRoot(true);
   mesh.setContainsRoot(true);
@@ -106,7 +111,7 @@ void loop(){
         Serial.println("MQTT reconnected...");
         reconnectInterval = 5000;
       } else {
-        reconnectInterval = min(reconnectInterval * 2, (unsigned long) 60000); // Exponential backoff (max 60s)
+        reconnectInterval = min(reconnectInterval * 2, (unsigned long) 30000); // Exponential backoff (max 60s)
         Serial.print("Retrying in ");
         Serial.print(reconnectInterval / 1000);
         Serial.println("s...");
@@ -168,6 +173,7 @@ bool reconnect() {
   if (WiFi.status() != WL_CONNECTED) {
     WiFi.disconnect();
     mesh.stationManual(STATION_SSID, STATION_PASSWORD); // Re-init Wi-Fi
+    Serial.print(WiFi.localIP());
   }
 
   char clientId[32];
@@ -249,4 +255,3 @@ void receivedCallback(uint32_t from, String &msg) {
 IPAddress getlocalIP() {
   return IPAddress(mesh.getStationIP());
 }
-
