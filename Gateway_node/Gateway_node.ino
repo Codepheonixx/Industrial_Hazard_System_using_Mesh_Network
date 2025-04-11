@@ -32,7 +32,7 @@ bool buzzerState = false; // tracks ON/OFF state of buzzer for blinking
 IPAddress getlocalIP();
 
 IPAddress myIP(0,0,0,0);
-IPAddress mqttBroker(192, 168, 146, 64);
+IPAddress mqttBroker(192, 168, 32, 64);
 
 void receivedCallback(uint32_t from, String &msg);
 void mqttCallback(char* topic, byte* payload, unsigned int length);
