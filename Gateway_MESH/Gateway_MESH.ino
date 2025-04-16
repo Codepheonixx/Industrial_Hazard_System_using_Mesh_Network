@@ -2,8 +2,8 @@
 #include <ArduinoJson.h>
 #include <SoftwareSerial.h>
 
-#define RX_PIN D1  // GPIO5
-#define TX_PIN D2  // GPIO4
+#define RX_PIN D2  // GPIO5
+#define TX_PIN D1  // GPIO4
 
 #define MESH_PREFIX "Fire_Gas_Detector"
 #define MESH_PASSWORD "saveslifefromfire"

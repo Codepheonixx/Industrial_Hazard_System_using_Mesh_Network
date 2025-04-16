@@ -6,21 +6,20 @@
 #define MESH_PASSWORD "saveslifefromfire"
 #define MESH_PORT 5555
 
-const uint8_t room = 0; //Assign room number for the room you want the sensor to be installed
+const uint8_t room = 2; //Assign room number for the room you want the sensor to be installed
 
 const short firepin = D5;  // Fire sensor pin
 const short gaspin = A0;   // Gas sensor pin
 const short buzzer = D6;   // Alert output pin
-uint16_t gas_threshold = 500;   // Set the gas threshold
+uint16_t gas_threshold = 300;   // Set the gas threshold
 
 bool firesensor;
 uint16_t gassensor;
 
-const unsigned long buzzInterval = 500;  // 500ms pulse interval (rapid buzz)
-const unsigned long minAlarmDuration = 2000;  // Minimum 2-second alarm
-unsigned long alarmStartTime = 0;
-
-bool buzzerActive = false;   // Buzzer reset flag
+bool buzzerActive = false;
+unsigned long lastBlinkTime = 0;
+const unsigned long BUZZER_BLINK_INTERVAL = 500; // blink every 500ms
+bool buzzerState = false; // tracks ON/OFF state of buzzer for blinking
 
 Scheduler myScheduler; // to schedule task
 painlessMesh  mesh;
@@ -62,55 +61,37 @@ void readSensor() {
   // Alarm Trigger
   if ((firesensor || gassensor > gas_threshold) && !buzzerActive) {
     buzzerActive = true;
-    alarmStartTime = millis();
     Serial.printf("ALARM: Fire/Gas detected in Room %d!\n", room);
   }
-
-  //Part to trigger buzzer
-  static unsigned long lastBuzzToggle = 0;
-
-  // Buzzer Toggle (if active)
-  if (buzzerActive) {
-    if (millis() - alarmStartTime < minAlarmDuration) {
-      // Rapid buzz for 2s
-      if (millis() - lastBuzzToggle >= buzzInterval) {
-        lastBuzzToggle = millis();
-        digitalWrite(buzzer, !digitalRead(buzzer));
-      }
-    } else {
-      // Stop if sensors are clear
-      if (!firesensor && gassensor <= gas_threshold) {
-        buzzerActive = false;
-        digitalWrite(buzzer, LOW);
-      }
-    }
-  }
 }
+
 
 // Needed for painless library
-void receivedCallback( uint32_t from, String &msg ) {
+void receivedCallback(uint32_t from, String &msg) {
   StaticJsonDocument<256> doc;
-  DeserializationError error = deserializeJson(doc, msg);
 
-  if (error) {
-        Serial.printf("JSON error: %s\n", error.c_str());
-        return;
-    }
-
-  else if (msg == "reset") {
-    Serial.println("Reset message reseived from gateway");
+  // Check for raw "reset" command first
+  if (msg == "reset") {
+    Serial.println("Reset message received from gateway");
     buzzerActive = false;
-    digitalWrite(buzzer, LOW);
+    return;
   }
 
-  else {
-    short room = doc["node"];
-    bool  fireSensor = doc["fire"];
-    bool  gasSensor = doc["gas"];
-
-    Serial.printf("Room %d, Fire: %d, Gas: %d\n", room, fireSensor, gasSensor);
+  // Then try to parse JSON if it's not a raw command
+  DeserializationError error = deserializeJson(doc, msg);
+  if (error) {
+    Serial.printf("JSON error: %s\n", error.c_str());
+    return;
   }
+
+  // Handle valid JSON structure
+  short room = doc["node"];
+  bool fireSensor = doc["fire"];
+  bool gasSensor = doc["gas"];
+
+  Serial.printf("Room %d, Fire: %d, Gas: %d\n", room, fireSensor, gasSensor);
 }
+
 
 void newConnectionCallback(uint32_t nodeId) {
   Serial.printf("New Connection: NodeID = %u\n", nodeId);
@@ -154,8 +135,24 @@ void setup() {
 }
 
 void loop() {
+  
   // it will run the user scheduler as well
   mesh.update();
   myScheduler.execute();
+
+  //Part to trigger buzzer
+  if (buzzerActive) {
+    unsigned long currentTime = millis();
+
+    // Blink the buzzer every 500ms
+    if (currentTime - lastBlinkTime >= BUZZER_BLINK_INTERVAL) {
+      buzzerState = !buzzerState;
+      digitalWrite(buzzer, buzzerState ? HIGH : LOW);
+      lastBlinkTime = currentTime;
+    }
+  } else {
+    digitalWrite(buzzer, LOW);
+    buzzerState = false;
+  }
 
 }
